@@ -9,8 +9,8 @@ export default async function handler(req, res) {
 
   const graphqlQuery = {
     query: `
-      {
-        products(first: 100, query: "${q}*") {
+      query Products($search: String!) {
+        products(first: 100, query: $search) {
           edges {
             node {
               id
@@ -36,6 +36,9 @@ export default async function handler(req, res) {
         }
       }
     `,
+    variables: {
+      search: `${q}*`
+    }
   };
 
   const response = await fetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
@@ -64,12 +67,16 @@ export default async function handler(req, res) {
     };
   });
 
-  // Match logic
   const qLower = q.toLowerCase();
   let matchType = 'general';
 
-  const matchedVendors = products.filter(p => p.vendor.toLowerCase().includes(qLower));
-  const matchedColors = products.filter(p => p.tags.some(tag => tag.toLowerCase().includes(qLower)));
+  const matchedVendors = products.filter(p =>
+    p.vendor && p.vendor.toLowerCase().includes(qLower)
+  );
+
+  const matchedColors = products.filter(p =>
+    p.tags.some(tag => tag.toLowerCase().includes(qLower))
+  );
 
   if (matchedVendors.length) {
     matchType = 'vendor';
@@ -77,12 +84,11 @@ export default async function handler(req, res) {
     matchType = 'color';
   }
 
-  // Group by product type
   const grouped = {};
   (matchType === 'vendor' ? matchedVendors :
    matchType === 'color' ? matchedColors : products
   ).forEach(product => {
-    const key = product.productType || 'Other';
+    const key = product.productType?.trim() || 'General';
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(product);
   });
