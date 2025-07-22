@@ -7,27 +7,23 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing query or env vars' });
   }
 
-  const graphqlQuery = {
+  const gqlQuery = {
     query: `
-      query Products($search: String!) {
-        products(first: 100, query: $search) {
+      {
+        products(first: 20, query: "${q}*") {
           edges {
             node {
               id
               title
+              handle
               vendor
               productType
-              tags
-              handle
-              featuredImage {
-                url
-              }
-              variants(first: 1) {
+              onlineStoreUrl
+              images(first: 1) {
                 edges {
                   node {
-                    price {
-                      amount
-                    }
+                    url
+                    altText
                   }
                 }
               }
@@ -36,62 +32,33 @@ export default async function handler(req, res) {
         }
       }
     `,
-    variables: {
-      search: `${q}*`
-    }
   };
 
-  const response = await fetch(`https://${shop}/admin/api/2024-04/graphql.json`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': token,
-    },
-    body: JSON.stringify(graphqlQuery),
-  });
+  try {
+    const response = await fetch(`https://${shop}/admin/api/2024-01/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': token,
+      },
+      body: JSON.stringify(gqlQuery),
+    });
 
-  const result = await response.json();
-  const edges = result?.data?.products?.edges || [];
+    const json = await response.json();
 
-  const products = edges.map(({ node }) => {
-    const price = node.variants.edges[0]?.node?.price.amount || '0.00';
-    return {
+    const products = json.data.products.edges.map(({ node }) => ({
       title: node.title,
-      vendor: node.vendor,
-      productType: node.productType,
-      tags: node.tags,
       handle: node.handle,
-      image: node.featuredImage?.url,
-      url: `/products/${node.handle}`,
-      price,
-    };
-  });
+      url: node.onlineStoreUrl || `/products/${node.handle}`,
+      vendor: node.vendor,
+      product_type: node.productType,
+      image: node.images.edges[0]?.node?.url || null,
+      alt: node.images.edges[0]?.node?.altText || node.title,
+    }));
 
-  const qLower = q.toLowerCase();
-  let matchType = 'general';
-
-  const matchedVendors = products.filter(p =>
-    p.vendor && p.vendor.toLowerCase().includes(qLower)
-  );
-
-  const matchedColors = products.filter(p =>
-    p.tags.some(tag => tag.toLowerCase().includes(qLower))
-  );
-
-  if (matchedVendors.length) {
-    matchType = 'vendor';
-  } else if (matchedColors.length) {
-    matchType = 'color';
+    res.status(200).json({ products });
+  } catch (error) {
+    console.error('App Proxy Search Error:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
-
-  const grouped = {};
-  (matchType === 'vendor' ? matchedVendors :
-   matchType === 'color' ? matchedColors : products
-  ).forEach(product => {
-    const key = product.productType?.trim() || 'General';
-    if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(product);
-  });
-
-  res.status(200).json({ matchType, grouped });
 }
