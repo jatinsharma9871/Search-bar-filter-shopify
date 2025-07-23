@@ -1,43 +1,58 @@
-// /api/products.js
 export default async function handler(req, res) {
-  const { query } = req.query;
+  try {
+    const { query } = req.query;
+    const shop = process.env.SHOPIFY_SHOP;
+    const token = process.env.SHOPIFY_ADMIN_TOKEN;
 
-  const storefrontAccessToken = process.env.SHOPIFY_STOREFRONT_TOKEN;
-  const shop = process.env.SHOPIFY_DOMAIN;
+    if (!query || !shop || !token) {
+      return res.status(400).json({ error: 'Missing query or env vars' });
+    }
 
-  const endpoint = `https://${shop}/api/2023-07/graphql.json`;
-
-  const gqlQuery = {
-    query: `
-      query($query: String!) {
-        products(first: 50, query: $query) {
-          edges {
-            node {
-              id
-              title
-              vendor
-              productType
-              handle
-              onlineStoreUrl
+    const gqlQuery = {
+      query: `
+        {
+          products(first: 100, query: "${query}*") {
+            edges {
+              node {
+                id
+                title
+                vendor
+                productType
+                handle
+                images(first: 1) {
+                  edges {
+                    node {
+                      src
+                    }
+                  }
+                }
+              }
             }
           }
         }
-      }
-    `,
-    variables: { query }
-  };
+      `,
+    };
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Shopify-Storefront-Access-Token': storefrontAccessToken,
-    },
-    body: JSON.stringify(gqlQuery),
-  });
+    const response = await fetch(`https://${shop}/admin/api/2023-07/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': token,
+      },
+      body: JSON.stringify(gqlQuery),
+    });
 
-  const data = await response.json();
-  const products = data.data.products.edges.map(e => e.node);
+    const result = await response.json();
 
-  res.status(200).json({ products });
+    if (result.errors) {
+      return res.status(500).json({ error: result.errors });
+    }
+
+    const products = result.data.products.edges.map(edge => edge.node);
+    res.status(200).json({ products });
+
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Internal Server Error', message: err.message });
+  }
 }
