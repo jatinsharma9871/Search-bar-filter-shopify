@@ -1,11 +1,21 @@
 export default async function handler(req, res) {
+  // Set CORS headers
+  res.setHeader("Access-Control-Allow-Origin", "*"); // or specify your domain
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  // Handle preflight request
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   try {
     const { query } = req.query;
     const shop = process.env.SHOPIFY_SHOP;
     const token = process.env.SHOPIFY_ADMIN_TOKEN;
 
     if (!query || !shop || !token) {
-      return res.status(400).json({ error: 'Missing query or env vars' });
+      return res.status(400).json({ error: "Missing query or env vars" });
     }
 
     const gqlQuery = {
@@ -34,10 +44,10 @@ export default async function handler(req, res) {
     };
 
     const response = await fetch(`https://${shop}/admin/api/2023-07/graphql.json`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': token,
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": token,
       },
       body: JSON.stringify(gqlQuery),
     });
@@ -48,11 +58,11 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: result.errors });
     }
 
-    const products = result.data.products.edges.map(edge => edge.node);
-    res.status(200).json({ products });
+    const products = result.data.products.edges.map((edge) => edge.node);
+    return res.status(200).json({ products });
 
   } catch (err) {
-    console.error('Error:', err);
-    res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    console.error(err);
+    return res.status(500).json({ error: "Internal Server Error", message: err.message });
   }
 }
