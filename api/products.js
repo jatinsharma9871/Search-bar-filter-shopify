@@ -23,7 +23,7 @@ export default async function handler(req, res) {
     const gqlQuery = {
       query: `
         {
-          products(first: 100, query: "${query}*") {
+          products(first: 250, query: "${query}*") {
             edges {
               node {
                 id
