@@ -1,10 +1,11 @@
 export default async function handler(req, res) {
   // Set CORS headers
   // res.setHeader("Access-Control-Allow-Origin", "*"); // or specify your domain
-  res.setHeader("Access-Control-Allow-Origin", "https://02hylc72yddquwgy-56868241501.shopifypreview.com");
-
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  // Allow all Shopify preview domains (use cautiously in preview/staging only)
+res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+res.setHeader('Access-Control-Allow-Credentials', 'true');
+res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
  
   // Handle preflight request
   if (req.method === "OPTIONS") {
