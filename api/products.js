@@ -11,7 +11,7 @@ res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
-
+ 
   try {
     const { query } = req.query;
     const shop = process.env.SHOPIFY_SHOP;
