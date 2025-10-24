@@ -9,55 +9,38 @@ export default async function handler(req, res) {
 
   try {
     const queryParam = req.method === "POST" ? req.body?.query : req.query.query;
-    const afterCursor = req.method === "POST" ? req.body?.after : req.query.after;
     const shop = process.env.SHOPIFY_SHOP;
     const token = process.env.SHOPIFY_ADMIN_TOKEN;
 
+    // ✅ Trigger search only for 2+ characters
     if (!queryParam || queryParam.trim().length < 2) {
-      return res.status(200).json({ total: 0, products: [], hasNextPage: false });
+      return res.status(200).json({ total: 0, products: [] });
     }
 
     if (!shop || !token) return res.status(400).json({ error: "Missing env variables" });
 
     const q = queryParam.trim().toLowerCase();
 
-    // ✅ Shopify query: title, vendor, type, color (assuming variant option1 contains color)
+    // ✅ Shopify handles search filtering (fast)
     const gqlQuery = {
       query: `
-        query SearchProducts($search: String!, $after: String) {
-          products(first: 20, after: $after, query: $search) {
+        query SearchProducts($search: String!) {
+          products(first: 20, query: $search) {
             edges {
-              cursor
               node {
                 id
                 title
                 handle
                 vendor
                 productType
-                variants(first: 5) {
-                  edges {
-                    node {
-                      id
-                      title
-                      option1
-                    }
-                  }
-                }
-                images(first: 1) {
-                  edges { node { url } }
-                }
+                images(first: 1) { edges { node { url } } }
               }
-            }
-            pageInfo {
-              hasNextPage
-              endCursor
             }
           }
         }
       `,
       variables: {
-        search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}* OR variants.title:*${q}* OR variants.option1:*${q}*)`,
-        after: afterCursor || null,
+        search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}*)`,
       },
     };
 
@@ -74,16 +57,11 @@ export default async function handler(req, res) {
 
     if (result.errors) return res.status(500).json({ error: result.errors });
 
-    const products = result.data.products.edges.map(edge => ({
-      ...edge.node,
-      cursor: edge.cursor,
-    }));
+    const products = result.data.products.edges.map(edge => edge.node);
 
     return res.status(200).json({
       total: products.length,
       products,
-      hasNextPage: result.data.products.pageInfo.hasNextPage,
-      endCursor: result.data.products.pageInfo.endCursor,
     });
 
   } catch (err) {
