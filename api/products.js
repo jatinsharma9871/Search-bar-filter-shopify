@@ -1,4 +1,3 @@
-// File: /api/products.js
 export default async function handler(req, res) {
   // ✅ CORS headers
   res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
@@ -9,30 +8,24 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   try {
-    // ✅ Get search query from GET or POST
     const queryParam = req.method === "POST" ? req.body?.query : req.query.query;
-    if (!queryParam || queryParam.trim().length < 2)
-      return res.status(200).json({ total: 0, products: [] });
-
     const shop = process.env.SHOPIFY_SHOP;
     const token = process.env.SHOPIFY_ADMIN_TOKEN;
 
-    if (!shop || !token)
-      return res.status(400).json({ error: "Missing environment variables" });
+    // ✅ Trigger search only for 2+ characters
+    if (!queryParam || queryParam.trim().length < 2) {
+      return res.status(200).json({ total: 0, products: [] });
+    }
+
+    if (!shop || !token) return res.status(400).json({ error: "Missing env variables" });
 
     const q = queryParam.trim().toLowerCase();
-    const words = q.split(/\s+/);
 
-    // ✅ Build Shopify multi-word search query with wildcards
-    const shopifyQuery = words
-      .map(w => `(title:*${w}* OR variants.title:*${w}* OR variants.option1:*${w}* OR product_type:*${w}* OR vendor:*${w}*)`)
-      .join(" AND ");
-
-    // ✅ GraphQL query
+    // ✅ Shopify handles search filtering (fast)
     const gqlQuery = {
       query: `
         query SearchProducts($search: String!) {
-          products(first: 30, query: $search) {
+          products(first: 20, query: $search) {
             edges {
               node {
                 id
@@ -41,13 +34,14 @@ export default async function handler(req, res) {
                 vendor
                 productType
                 images(first: 1) { edges { node { url } } }
-                variants(first: 5) { edges { node { title option1 option2 option3 } } }
               }
             }
           }
         }
       `,
-      variables: { search: shopifyQuery },
+      variables: {
+        search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}*)`,
+      },
     };
 
     const response = await fetch(`https://${shop}/admin/api/2024-07/graphql.json`, {
@@ -60,26 +54,18 @@ export default async function handler(req, res) {
     });
 
     const result = await response.json();
+
     if (result.errors) return res.status(500).json({ error: result.errors });
 
-    // ✅ Map products
-    const products = result.data.products.edges.map(edge => {
-      const p = edge.node;
-      return {
-        id: p.id,
-        title: p.title,
-        handle: p.handle,
-        vendor: p.vendor,
-        productType: p.productType,
-        image: p.images.edges[0]?.node.url || null,
-        variants: p.variants.edges.map(v => v.node),
-      };
-    });
+    const products = result.data.products.edges.map(edge => edge.node);
 
-    return res.status(200).json({ total: products.length, products });
+    return res.status(200).json({
+      total: products.length,
+      products,
+    });
 
   } catch (err) {
     console.error("Handler error:", err);
-    return res.status(500).json({ error: "Internal Server Error", message: err.message });
+    return res.status(500).json({ error: err.message });
   }
 }
