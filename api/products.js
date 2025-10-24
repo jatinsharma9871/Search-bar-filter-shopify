@@ -32,7 +32,7 @@ export default async function handler(req, res) {
       const gqlQuery = {
         query: `
           query SearchProducts($cursor: String) {
-            products(first: 250, after: $cursor) {
+            products(first: 50, after: $cursor) {
               edges {
                 cursor
                 node {
