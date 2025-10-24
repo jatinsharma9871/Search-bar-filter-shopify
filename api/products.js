@@ -1,11 +1,13 @@
 export default async function handler(req, res) {
-  // ✅ Set CORS headers
-  res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  // ✅ Handle preflight request
+  // Set CORS headers
+  // res.setHeader("Access-Control-Allow-Origin", "*"); // or specify your domain
+  // Allow all Shopify preview domains (use cautiously in preview/staging only)
+res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+res.setHeader('Access-Control-Allow-Credentials', 'true');
+res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+ 
+  // Handle preflight request
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
@@ -19,11 +21,10 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Missing query or env vars" });
     }
 
-    // ✅ Use GraphQL variables (prevents string injection issues)
     const gqlQuery = {
       query: `
-        query SearchProducts($search: String!) {
-          products(first: 250, query: $search) {
+        {
+          products(first: 250, query: "${query}*") {
             edges {
               node {
                 id
@@ -34,7 +35,7 @@ export default async function handler(req, res) {
                 images(first: 1) {
                   edges {
                     node {
-                      url
+                      src
                     }
                   }
                 }
@@ -43,22 +44,16 @@ export default async function handler(req, res) {
           }
         }
       `,
-      variables: {
-        search: `${query}*`,
-      },
     };
 
-    const response = await fetch(
-      `https://${shop}/admin/api/2024-07/graphql.json`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": token,
-        },
-        body: JSON.stringify(gqlQuery),
-      }
-    );
+    const response = await fetch(`https://${shop}/admin/api/2023-07/graphql.json`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": token,
+      },
+      body: JSON.stringify(gqlQuery),
+    });
 
     const result = await response.json();
 
@@ -71,8 +66,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error(err);
-    return res
-      .status(500)
-      .json({ error: "Internal Server Error", message: err.message });
+    return res.status(500).json({ error: "Internal Server Error", message: err.message });
   }
 }
