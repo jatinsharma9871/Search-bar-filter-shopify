@@ -14,7 +14,7 @@ export default async function handler(req, res) {
     const token = process.env.SHOPIFY_ADMIN_TOKEN;
 
     // ✅ Validate query length
-    if (!queryParam || queryParam.trim().length < 2) {
+    if (!queryParam || queryParam.trim().length < 3) {
       return res.status(200).json({ total: 0, products: [] });
     }
 
