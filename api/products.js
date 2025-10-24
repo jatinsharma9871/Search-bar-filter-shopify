@@ -1,5 +1,4 @@
 export default async function handler(req, res) {
-  // ✅ CORS headers
   res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -12,20 +11,16 @@ export default async function handler(req, res) {
     const shop = process.env.SHOPIFY_SHOP;
     const token = process.env.SHOPIFY_ADMIN_TOKEN;
 
-    // ✅ Trigger search only for 2+ characters
     if (!queryParam || queryParam.trim().length < 2) {
       return res.status(200).json({ total: 0, products: [] });
     }
-
     if (!shop || !token) return res.status(400).json({ error: "Missing env variables" });
 
     const q = queryParam.trim().toLowerCase();
-
-    // ✅ Shopify handles search filtering (fast)
     const gqlQuery = {
       query: `
         query SearchProducts($search: String!) {
-          products(first: 20, query: $search) {
+          products(first: 50, query: $search) {
             edges {
               node {
                 id
@@ -33,6 +28,9 @@ export default async function handler(req, res) {
                 handle
                 vendor
                 productType
+                variants(first: 5) {
+                  edges { node { title option1 option2 option3 } }
+                }
                 images(first: 1) { edges { node { url } } }
               }
             }
@@ -40,7 +38,7 @@ export default async function handler(req, res) {
         }
       `,
       variables: {
-        search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}*)`,
+        search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}* OR variants.title:*${q}* OR variants.option1:*${q}* OR variants.option2:*${q}* OR variants.option3:*${q}*)`,
       },
     };
 
@@ -54,15 +52,30 @@ export default async function handler(req, res) {
     });
 
     const result = await response.json();
-
     if (result.errors) return res.status(500).json({ error: result.errors });
 
-    const products = result.data.products.edges.map(edge => edge.node);
+    let products = result.data.products.edges.map(edge => edge.node);
 
-    return res.status(200).json({
-      total: products.length,
-      products,
+    // ✅ Multi-word substring match
+    const searchWords = q.split(/\s+/); // split query into words
+    products = products.filter(product => {
+      const haystack = [
+        product.title,
+        product.productType,
+        product.vendor,
+        ...(product.variants?.edges.map(v => v.node.title || "")),
+        ...(product.variants?.edges.map(v => v.node.option1 || "")),
+        ...(product.variants?.edges.map(v => v.node.option2 || "")),
+        ...(product.variants?.edges.map(v => v.node.option3 || "")),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      // Only include product if ALL search words appear in the combined string
+      return searchWords.every(word => haystack.includes(word));
     });
+
+    return res.status(200).json({ total: products.length, products });
 
   } catch (err) {
     console.error("Handler error:", err);
