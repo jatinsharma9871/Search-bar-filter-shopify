@@ -1,27 +1,92 @@
-export default async function handler(req, res) {
-  // ✅ CORS headers
-  res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+let tokenCache = null;
+let tokenExpiry = 0;
 
-  if (req.method === "OPTIONS") return res.status(200).end();
+async function getShopifyToken() {
+  if (tokenCache && Date.now() < tokenExpiry) {
+    return tokenCache;
+  }
+
+  const response = await fetch(
+    `https://${process.env.SHOPIFY_SHOP}/admin/oauth/access_token`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: process.env.SHOPIFY_CLIENT_ID,
+        client_secret: process.env.SHOPIFY_CLIENT_SECRET,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Failed to get Shopify token: ${response.status} - ${errorText}`
+    );
+  }
+
+  const data = await response.json();
+
+  tokenCache = data.access_token;
+
+  // Refresh 5 minutes before expiry
+  tokenExpiry =
+    Date.now() + ((data.expires_in || 86400) - 300) * 1000;
+
+  console.log("Shopify token refreshed");
+
+  return tokenCache;
+}
+
+export default async function handler(req, res) {
+  // CORS
+  res.setHeader(
+    "Access-Control-Allow-Origin",
+    req.headers.origin || "*"
+  );
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, OPTIONS"
+  );
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization"
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
 
   try {
-    const queryParam = req.method === "POST" ? req.body?.query : req.query.query;
-    const shop = process.env.SHOPIFY_SHOP;
-    const token = process.env.SHOPIFY_ADMIN_TOKEN;
+    const queryParam =
+      req.method === "POST"
+        ? req.body?.query
+        : req.query.query;
 
-    // ✅ Trigger search only for 2+ characters
     if (!queryParam || queryParam.trim().length < 2) {
-      return res.status(200).json({ total: 0, products: [] });
+      return res.status(200).json({
+        total: 0,
+        products: [],
+      });
     }
 
-    if (!shop || !token) return res.status(400).json({ error: "Missing env variables" });
+    if (
+      !process.env.SHOPIFY_SHOP ||
+      !process.env.SHOPIFY_CLIENT_ID ||
+      !process.env.SHOPIFY_CLIENT_SECRET
+    ) {
+      return res.status(500).json({
+        error: "Missing Shopify environment variables",
+      });
+    }
 
+    const token = await getShopifyToken();
     const q = queryParam.trim().toLowerCase();
 
-    // ✅ Shopify handles search filtering (fast)
     const gqlQuery = {
       query: `
         query SearchProducts($search: String!) {
@@ -33,7 +98,13 @@ export default async function handler(req, res) {
                 handle
                 vendor
                 productType
-                images(first: 1) { edges { node { url } } }
+                images(first: 1) {
+                  edges {
+                    node {
+                      url
+                    }
+                  }
+                }
               }
             }
           }
@@ -44,28 +115,59 @@ export default async function handler(req, res) {
       },
     };
 
-    const response = await fetch(`https://${shop}/admin/api/2024-07/graphql.json`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": token,
-      },
-      body: JSON.stringify(gqlQuery),
-    });
+    let response = await fetch(
+      `https://${process.env.SHOPIFY_SHOP}/admin/api/2025-10/graphql.json`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": token,
+        },
+        body: JSON.stringify(gqlQuery),
+      }
+    );
+
+    // Retry once if token expired unexpectedly
+    if (response.status === 401) {
+      tokenCache = null;
+
+      const freshToken = await getShopifyToken();
+
+      response = await fetch(
+        `https://${process.env.SHOPIFY_SHOP}/admin/api/2025-10/graphql.json`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": freshToken,
+          },
+          body: JSON.stringify(gqlQuery),
+        }
+      );
+    }
 
     const result = await response.json();
 
-    if (result.errors) return res.status(500).json({ error: result.errors });
+    if (result.errors) {
+      return res.status(500).json({
+        error: result.errors,
+      });
+    }
 
-    const products = result.data.products.edges.map(edge => edge.node);
+    const products =
+      result?.data?.products?.edges?.map(
+        (edge) => edge.node
+      ) || [];
 
     return res.status(200).json({
       total: products.length,
       products,
     });
-
   } catch (err) {
     console.error("Handler error:", err);
-    return res.status(500).json({ error: err.message });
+
+    return res.status(500).json({
+      error: err.message,
+    });
   }
 }
