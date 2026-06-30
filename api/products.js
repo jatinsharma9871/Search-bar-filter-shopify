@@ -89,46 +89,29 @@ export default async function handler(req, res) {
 
     const gqlQuery = {
       query: `
-      query SearchProducts($search: String!) {
-  products(first: 100, query: $search) {
-    edges {
-      node {
-        id
-        title
-        handle
-        vendor
-        productType
-
-        totalInventory
-
-        images(first: 1) {
-          edges {
-            node {
-              url
-            }
-          }
-        }
-
-        variants(first: 100) {
-          edges {
-            node {
-              availableForSale
-              inventoryQuantity
-              title
-              selectedOptions {
-                name
-                value
+        query SearchProducts($search: String!) {
+          products(first: 100, query: $search) {
+            edges {
+              node {
+                id
+                title
+                handle
+                vendor
+                productType
+                images(first: 1) {
+                  edges {
+                    node {
+                      url
+                    }
+                  }
+                }
               }
             }
           }
         }
-      }
-    }
-  }
-}
       `,
       variables: {
-      search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}*) AND status:active AND inventory_total:>0`,
+        search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}*)`,
       },
     };
 
@@ -171,37 +154,10 @@ export default async function handler(req, res) {
       });
     }
 
-   const products =
-  (result?.data?.products?.edges || [])
-    .map((edge) => {
-      const product = edge.node;
-
-      const variants = (product.variants?.edges || []).map((v) => ({
-        title: v.node.title,
-        availableForSale: v.node.availableForSale,
-        inventoryQuantity: v.node.inventoryQuantity,
-        option1:
-          v.node.selectedOptions?.find(
-            (o) => o.name.toLowerCase() === "color"
-          )?.value || "",
-      }));
-
-      return {
-        id: product.id,
-        title: product.title,
-        handle: product.handle,
-        vendor: product.vendor,
-        productType: product.productType,
-        totalInventory: product.totalInventory,
-        image: product.images?.edges?.[0]?.node?.url || "",
-        url: `/products/${product.handle}`,
-        variants,
-      };
-    })
-    // Hide sold-out products
-    .filter((product) =>
-      product.variants.some((variant) => variant.availableForSale)
-    );
+    const products =
+      result?.data?.products?.edges?.map(
+        (edge) => edge.node
+      ) || [];
 
     return res.status(200).json({
       total: products.length,
