@@ -162,7 +162,7 @@ export default async function handler(req, res) {
     ?.filter(product =>
       product.status === "ACTIVE" &&
       product.totalInventory > 0
-    ) || [];
+    );
 
     return res.status(200).json({
       total: products.length,
