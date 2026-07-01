@@ -82,36 +82,38 @@ export default async function handler(req, res) {
 
     const gqlQuery = {
       query: `
-        query SearchProducts($search: String!) {
-          products(first: 100, query: $search) {
-            edges {
-              node {
-                id
-                title
-                handle
-                vendor
-                productType
-                totalInventory
+      query SearchProducts($search: String!) {
+  products(first: 100, query: $search) {
+    edges {
+      node {
+        id
+        title
+        handle
+        vendor
+        productType
+        totalInventory
 
-                images(first: 1) {
-                  edges {
-                    node {
-                      url
-                    }
-                  }
-                }
-
-                variants(first: 100) {
-                  edges {
-                    node {
-                      inventoryQuantity
-                    }
-                  }
-                }
-              }
+        images(first: 1) {
+          edges {
+            node {
+              url
             }
           }
         }
+
+        variants(first: 100) {
+          edges {
+            node {
+              title
+              option1
+              inventoryQuantity
+            }
+          }
+        }
+      }
+    }
+  }
+}
       `,
       variables: {
         search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}*)`,
