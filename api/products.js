@@ -89,8 +89,8 @@ export default async function handler(req, res) {
 
     const gqlQuery = {
       query: `
-       query SearchProducts($search: String!) {
-  products(first: 250, query: $search) {
+     query SearchProducts($search: String!) {
+  products(first: 100, query: $search) {
     edges {
       node {
         id
@@ -99,7 +99,14 @@ export default async function handler(req, res) {
         vendor
         productType
         status
-        totalInventory
+        variants(first: 100) {
+          edges {
+            node {
+              inventoryQuantity
+              inventoryPolicy
+            }
+          }
+        }
         images(first: 1) {
           edges {
             node {
@@ -159,11 +166,23 @@ export default async function handler(req, res) {
    const products =
   result?.data?.products?.edges
     ?.map(edge => edge.node)
-    ?.filter(product =>
-      product.status === "ACTIVE" &&
-      product.totalInventory > 0
-    );
+    ?.filter(product => {
+      if (product.status !== "ACTIVE") return false;
 
+      return product.variants.edges.some(({ node }) => {
+        return (
+          node.inventoryQuantity > 0 ||
+          node.inventoryPolicy === "CONTINUE"
+        );
+      });
+    }) || [];
+    
+    console.log(
+  products.map(p => ({
+    title: p.title,
+    vendor: p.vendor
+  }))
+);
     return res.status(200).json({
       total: products.length,
       products,
