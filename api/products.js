@@ -22,17 +22,12 @@ async function getShopifyToken() {
   );
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `Failed to get Shopify token: ${response.status} - ${errorText}`
-    );
+    throw new Error(await response.text());
   }
 
   const data = await response.json();
 
   tokenCache = data.access_token;
-
-  // Refresh 5 minutes before expiry
   tokenExpiry =
     Date.now() + ((data.expires_in || 86400) - 300) * 1000;
 
@@ -42,7 +37,6 @@ async function getShopifyToken() {
 }
 
 export default async function handler(req, res) {
-  // CORS
   res.setHeader(
     "Access-Control-Allow-Origin",
     req.headers.origin || "*"
@@ -50,7 +44,7 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader(
     "Access-Control-Allow-Methods",
-    "GET, POST, OPTIONS"
+    "GET,POST,OPTIONS"
   );
   res.setHeader(
     "Access-Control-Allow-Headers",
@@ -62,53 +56,59 @@ export default async function handler(req, res) {
   }
 
   try {
-    const queryParam =
+    const query =
       req.method === "POST"
         ? req.body?.query
         : req.query.query;
 
-    if (!queryParam || queryParam.trim().length < 2) {
+    if (!query || query.trim().length < 2) {
       return res.status(200).json({
         total: 0,
         products: [],
       });
     }
 
-    if (
-      !process.env.SHOPIFY_SHOP ||
-      !process.env.SHOPIFY_CLIENT_ID ||
-      !process.env.SHOPIFY_CLIENT_SECRET
-    ) {
-      return res.status(500).json({
-        error: "Missing Shopify environment variables",
-      });
-    }
-
     const token = await getShopifyToken();
-    const q = queryParam.trim().toLowerCase();
 
-    const gqlQuery = {
+    const q = query.trim().toLowerCase();
+
+    const graphql = {
       query: `
-        query SearchProducts($search: String!) {
-          products(first: 100, query: $search) {
-            edges {
-              node {
-                id
-                title
-                handle
-                vendor
-                productType
-                images(first: 1) {
-                  edges {
-                    node {
-                      url
-                    }
+      query SearchProducts($search:String!){
+        products(first:100,query:$search){
+          edges{
+            node{
+              id
+              title
+              handle
+              vendor
+              productType
+              totalInventory
+
+              images(first:1){
+                edges{
+                  node{
+                    url
+                  }
+                }
+              }
+
+              variants(first:100){
+                edges{
+                  node{
+                    id
+                    title
+                    option1
+                    option2
+                    option3
+                    inventoryQuantity
                   }
                 }
               }
             }
           }
         }
+      }
       `,
       variables: {
         search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}*)`,
@@ -123,11 +123,10 @@ export default async function handler(req, res) {
           "Content-Type": "application/json",
           "X-Shopify-Access-Token": token,
         },
-        body: JSON.stringify(gqlQuery),
+        body: JSON.stringify(graphql),
       }
     );
 
-    // Retry once if token expired unexpectedly
     if (response.status === 401) {
       tokenCache = null;
 
@@ -141,7 +140,7 @@ export default async function handler(req, res) {
             "Content-Type": "application/json",
             "X-Shopify-Access-Token": freshToken,
           },
-          body: JSON.stringify(gqlQuery),
+          body: JSON.stringify(graphql),
         }
       );
     }
@@ -155,16 +154,35 @@ export default async function handler(req, res) {
     }
 
     const products =
-      result?.data?.products?.edges?.map(
-        (edge) => edge.node
-      ) || [];
+      result?.data?.products?.edges?.map(({ node }) => ({
+        id: node.id,
+        title: node.title,
+        handle: node.handle,
+        url: `/products/${node.handle}`,
+        vendor: node.vendor,
+        productType: node.productType,
+        totalInventory: node.totalInventory,
+
+        image:
+          node.images?.edges?.[0]?.node?.url || "",
+
+        variants:
+          node.variants?.edges?.map(({ node }) => ({
+            id: node.id,
+            title: node.title,
+            option1: node.option1,
+            option2: node.option2,
+            option3: node.option3,
+            inventoryQuantity: node.inventoryQuantity,
+          })) || [],
+      })) || [];
 
     return res.status(200).json({
       total: products.length,
       products,
     });
   } catch (err) {
-    console.error("Handler error:", err);
+    console.error(err);
 
     return res.status(500).json({
       error: err.message,
