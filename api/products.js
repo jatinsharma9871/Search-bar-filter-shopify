@@ -170,13 +170,10 @@ export default async function handler(req, res) {
       if (product.status !== "ACTIVE") return false;
 
       return product.variants.edges.some(({ node }) => {
-        return (
-          node.inventoryQuantity > 0 ||
-          node.inventoryPolicy === "CONTINUE"
-        );
+        return node.inventoryQuantity > 0;
       });
     }) || [];
-    
+
     console.log(
   products.map(p => ({
     title: p.title,
