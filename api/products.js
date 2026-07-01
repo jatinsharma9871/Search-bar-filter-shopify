@@ -33,8 +33,7 @@ async function getShopifyToken() {
   tokenCache = data.access_token;
 
   // Refresh 5 minutes before expiry
-  tokenExpiry =
-    Date.now() + ((data.expires_in || 86400) - 300) * 1000;
+  tokenExpiry = Date.now() + ((data.expires_in || 86400) - 300) * 1000;
 
   console.log("Shopify token refreshed");
 
@@ -43,15 +42,9 @@ async function getShopifyToken() {
 
 export default async function handler(req, res) {
   // CORS
-  res.setHeader(
-    "Access-Control-Allow-Origin",
-    req.headers.origin || "*"
-  );
+  res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET, POST, OPTIONS"
-  );
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader(
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization"
@@ -89,35 +82,36 @@ export default async function handler(req, res) {
 
     const gqlQuery = {
       query: `
-     query SearchProducts($search: String!) {
-  products(first: 100, query: $search) {
-    edges {
-      node {
-        id
-        title
-        handle
-        vendor
-        productType
-        status
-        variants(first: 100) {
-          edges {
-            node {
-              inventoryQuantity
-              inventoryPolicy
+        query SearchProducts($search: String!) {
+          products(first: 100, query: $search) {
+            edges {
+              node {
+                id
+                title
+                handle
+                vendor
+                productType
+                totalInventory
+
+                images(first: 1) {
+                  edges {
+                    node {
+                      url
+                    }
+                  }
+                }
+
+                variants(first: 100) {
+                  edges {
+                    node {
+                      inventoryQuantity
+                    }
+                  }
+                }
+              }
             }
           }
         }
-        images(first: 1) {
-          edges {
-            node {
-              url
-            }
-          }
-        }
-      }
-    }
-  }
-}
       `,
       variables: {
         search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}*)`,
@@ -136,7 +130,7 @@ export default async function handler(req, res) {
       }
     );
 
-    // Retry once if token expired unexpectedly
+    // Retry once if token expired
     if (response.status === 401) {
       tokenCache = null;
 
@@ -163,26 +157,26 @@ export default async function handler(req, res) {
       });
     }
 
-   const products =
-  result?.data?.products?.edges
-    ?.map(edge => edge.node)
-    ?.filter(product => {
-      if (product.status !== "ACTIVE") return false;
+    // Extract products
+    let products =
+      result?.data?.products?.edges?.map((edge) => edge.node) || [];
 
-      return product.variants.edges.some(({ node }) => {
-        return (
-          node.availableForSale === true &&
-          node.inventoryQuantity > 0
-        );
-      });
-    }) || [];
+    // Hide products with zero inventory
+    products = products.filter((product) => {
+      // Prefer totalInventory if available
+      if (typeof product.totalInventory === "number") {
+        return product.totalInventory > 0;
+      }
 
-    console.log(
-  products.map(p => ({
-    title: p.title,
-    vendor: p.vendor
-  }))
-);
+      // Fallback: sum variant inventory
+      const total =
+        product.variants?.edges?.reduce((sum, variant) => {
+          return sum + (variant.node.inventoryQuantity || 0);
+        }, 0) || 0;
+
+      return total > 0;
+    });
+
     return res.status(200).json({
       total: products.length,
       products,
