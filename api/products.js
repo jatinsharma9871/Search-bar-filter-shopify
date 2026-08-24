@@ -98,6 +98,7 @@ export default async function handler(req, res) {
                 handle
                 vendor
                 productType
+                availableForSale
                 images(first: 1) {
                   edges {
                     node {
@@ -154,10 +155,10 @@ export default async function handler(req, res) {
       });
     }
 
-    const products =
-      result?.data?.products?.edges?.map(
-        (edge) => edge.node
-      ) || [];
+   const products =
+  result?.data?.products?.edges
+    ?.map(edge => edge.node)
+    .filter(product => product.availableForSale) || [];
 
     return res.status(200).json({
       total: products.length,
