@@ -111,8 +111,8 @@ export default async function handler(req, res) {
         }
       `,
       variables: {
-        search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}*)`,
-      },
+  search: `(title:*${escapedTerm}* OR vendor:*${escapedTerm}* OR product_type:*${escapedTerm}*) AND inventory_total:>0`,
+},
     };
 
     let response = await fetch(
@@ -155,9 +155,9 @@ export default async function handler(req, res) {
     }
 
     const products =
-      result?.data?.products?.edges?.map(
-        (edge) => edge.node
-      ) || [];
+  result?.data?.products?.edges
+    ?.map((edge) => edge.node)
+    .filter((product) => product.totalInventory > 0) || [];
 
     return res.status(200).json({
       total: products.length,
