@@ -88,33 +88,33 @@ export default async function handler(req, res) {
     const q = queryParam.trim().toLowerCase();
 
     const gqlQuery = {
-      query: `
-        query SearchProducts($search: String!) {
-          products(first: 100, query: $search) {
-            edges {
-              node {
-                id
-                title
-                handle
-                vendor
-                productType
-                images(first: 1) {
-                  edges {
-                    node {
-                      url
-                    }
-                  }
+  query: `
+    query SearchProducts($search: String!) {
+      products(first: 100, query: $search) {
+        edges {
+          node {
+            id
+            title
+            handle
+            vendor
+            productType
+            totalInventory
+            images(first: 1) {
+              edges {
+                node {
+                  url
                 }
               }
             }
           }
         }
-      `,
-      variables: {
-        search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}*)`,
-      },
-    };
-
+      }
+    }
+  `,
+  variables: {
+    search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}*)`,
+  },
+};
     let response = await fetch(
       `https://${process.env.SHOPIFY_SHOP}/admin/api/2025-10/graphql.json`,
       {
@@ -154,11 +154,11 @@ export default async function handler(req, res) {
       });
     }
 
-    const products =
-      result?.data?.products?.edges?.map(
-        (edge) => edge.node
-      ) || [];
-
+   const products =
+  result?.data?.products?.edges
+    ?.map((edge) => edge.node)
+    .filter((product) => Number(product.totalInventory) > 0) || [];
+    
     return res.status(200).json({
       total: products.length,
       products,
