@@ -126,9 +126,9 @@ export default async function handler(req, res) {
     }
   }
 }`,
-  variables: {
-  search: `title:${q} OR vendor:${q} OR product_type:${q}`
-  },
+ variables: {
+  search: `title:${q} OR vendor:${q} OR product_type:${q} OR sku:${q}*`
+},
 };
     let response = await fetch(
       `https://${process.env.SHOPIFY_SHOP}/admin/api/2025-10/graphql.json`,
