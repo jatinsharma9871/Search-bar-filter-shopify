@@ -85,7 +85,9 @@ export default async function handler(req, res) {
     }
 
     const token = await getShopifyToken();
-    const q = queryParam.trim().toLowerCase();
+    
+   const searchTerm = queryParam.trim();        // Original case
+const q = searchTerm.toLowerCase();          // For JS filtering
 
     const gqlQuery = {
   query: `
@@ -127,7 +129,7 @@ export default async function handler(req, res) {
   }
 }`,
  variables: {
-  search: `title:${q} OR vendor:${q} OR product_type:${q} OR sku:${q}*`
+  search: `title:*${searchTerm}* OR vendor:*${searchTerm}* OR product_type:*${searchTerm}* OR sku:*${searchTerm}* OR barcode:*${searchTerm}*`
 },
 };
     let response = await fetch(
@@ -162,7 +164,7 @@ export default async function handler(req, res) {
     }
 
     const result = await response.json();
-
+console.log(JSON.stringify(result.data.products.edges, null, 2));
     if (result.errors) {
       return res.status(500).json({
         error: result.errors,
@@ -189,8 +191,8 @@ export default async function handler(req, res) {
   );
 
   const skuMatch = product.variants.some(v =>
-    (v.sku || "").toLowerCase().includes(q)
-  );
+  (v.sku || "").toLowerCase().includes(q)
+);
 
   return (
     product.title.toLowerCase().includes(q) ||
@@ -201,9 +203,9 @@ export default async function handler(req, res) {
   );
 });
     return res.status(200).json({
-      total: products.length,
-      products,
-    });
+  total: filteredProducts.length,
+  products: filteredProducts,
+});
   } catch (err) {
     console.error("Handler error:", err);
 
