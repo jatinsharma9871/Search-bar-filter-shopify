@@ -89,30 +89,45 @@ export default async function handler(req, res) {
 
     const gqlQuery = {
   query: `
-    query SearchProducts($search: String!) {
-      products(first: 100, query: $search) {
-        edges {
-          node {
-            id
-            title
-            handle
-            vendor
-            productType
-            totalInventory
-            images(first: 1) {
-              edges {
-                node {
-                  url
-                }
+   query SearchProducts($search: String!) {
+  products(first: 100, query: $search) {
+    edges {
+      node {
+        id
+        title
+        handle
+        vendor
+        productType
+        totalInventory
+
+        variants(first: 100) {
+          edges {
+            node {
+              id
+              title
+              barcode
+              sku
+              selectedOptions {
+                name
+                value
               }
+            }
+          }
+        }
+
+        images(first: 1) {
+          edges {
+            node {
+              url
             }
           }
         }
       }
     }
-  `,
+  }
+}`,
   variables: {
-    search: `(title:*${q}* OR vendor:*${q}* OR product_type:*${q}*)`,
+  search: `title:${q} OR vendor:${q} OR product_type:${q}`
   },
 };
     let response = await fetch(
@@ -154,11 +169,37 @@ export default async function handler(req, res) {
       });
     }
 
-   const products =
+  const products =
   result?.data?.products?.edges
-    ?.map((edge) => edge.node)
-    .filter((product) => Number(product.totalInventory) > 0) || [];
+    ?.map(({ node }) => ({
+      ...node,
+      variants: node.variants.edges.map(v => ({
+        id: v.node.id,
+        title: v.node.title,
+        barcode: v.node.barcode,
+        sku: v.node.sku,
+        option1: v.node.selectedOptions?.[0]?.value || ""
+      }))
+    }))
+    .filter(product => Number(product.totalInventory) > 0) || [];
     
+    const filteredProducts = products.filter(product => {
+  const barcodeMatch = product.variants.some(v =>
+    (v.barcode || "").toLowerCase().includes(q)
+  );
+
+  const skuMatch = product.variants.some(v =>
+    (v.sku || "").toLowerCase().includes(q)
+  );
+
+  return (
+    product.title.toLowerCase().includes(q) ||
+    product.vendor.toLowerCase().includes(q) ||
+    product.productType.toLowerCase().includes(q) ||
+    barcodeMatch ||
+    skuMatch
+  );
+});
     return res.status(200).json({
       total: products.length,
       products,
