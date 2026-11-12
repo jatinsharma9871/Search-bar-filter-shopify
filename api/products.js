@@ -133,12 +133,13 @@ export default async function handler(req, res) {
                 variants(first: 100) {
                   edges {
                     node {
-                      id
-                      title
-                      barcode
-                      sku
-                      inventoryQuantity
-                      inventoryPolicy
+                       id
+      title
+      price
+      barcode
+      sku
+      inventoryQuantity
+      inventoryPolicy
 
                       inventoryItem {
                         tracked
@@ -238,6 +239,7 @@ export default async function handler(req, res) {
             title: variant.title,
             barcode: variant.barcode,
             sku: variant.sku,
+            price: variant.price,
 
             inventoryQuantity: variant.inventoryQuantity,
             inventoryPolicy: variant.inventoryPolicy,
