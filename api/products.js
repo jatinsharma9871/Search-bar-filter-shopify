@@ -105,14 +105,21 @@ const q = searchTerm.toLowerCase();          // For JS filtering
         variants(first: 100) {
           edges {
             node {
-              id
-              title
-              barcode
-              sku
-              selectedOptions {
-                name
-                value
-              }
+            id
+title
+barcode
+sku
+inventoryQuantity
+inventoryPolicy
+
+inventoryItem {
+  tracked
+}
+
+selectedOptions {
+  name
+  value
+}
             }
           }
         }
@@ -172,41 +179,88 @@ console.log(JSON.stringify(result.data.products.edges, null, 2));
     }
 
   const products =
+ 
+const products =
   result?.data?.products?.edges
-    ?.map(({ node }) => ({
-      ...node,
-      variants: node.variants.edges.map(v => ({
-        id: v.node.id,
-        title: v.node.title,
-        barcode: v.node.barcode,
-        sku: v.node.sku,
-        option1: v.node.selectedOptions?.[0]?.value || ""
-      }))
-    }))
-    .filter(product => Number(product.totalInventory) > 0) || [];
-    
-    const filteredProducts = products.filter(product => {
+    ?.map(({ node }) => {
+
+      const variants = (node.variants?.edges || []).map(
+        ({ node: variant }) => ({
+
+          id: variant.id,
+          title: variant.title,
+          barcode: variant.barcode,
+          sku: variant.sku,
+
+          inventoryQuantity: variant.inventoryQuantity,
+          inventoryPolicy: variant.inventoryPolicy,
+          tracked: variant.inventoryItem?.tracked,
+
+          selectedOptions: variant.selectedOptions || [],
+
+          option1: variant.selectedOptions?.[0]?.value || "",
+          option2: variant.selectedOptions?.[1]?.value || "",
+          option3: variant.selectedOptions?.[2]?.value || ""
+
+        })
+      );
+
+      // At least one variant must be purchasable.
+      const hasAvailableVariant = variants.some(variant => {
+
+        // Untracked inventory is treated as available.
+        if (variant.tracked === false) {
+          return true;
+        }
+
+        // Products allowing backorders remain available.
+        if (variant.inventoryPolicy === "CONTINUE") {
+          return true;
+        }
+
+        // Tracked products require positive inventory.
+        return Number(variant.inventoryQuantity) > 0;
+
+      });
+
+      return {
+        ...node,
+        variants,
+        hasAvailableVariant
+      };
+
+    })
+    // Remove products with no available variants.
+    .filter(product => product.hasAvailableVariant) || [];
+
+
+const filteredProducts = products.filter(product => {
+
   const barcodeMatch = product.variants.some(v =>
     (v.barcode || "").toLowerCase().includes(q)
   );
 
   const skuMatch = product.variants.some(v =>
-  (v.sku || "").toLowerCase().includes(q)
-);
+    (v.sku || "").toLowerCase().includes(q)
+  );
 
   return (
-    product.title.toLowerCase().includes(q) ||
-    product.vendor.toLowerCase().includes(q) ||
-    product.productType.toLowerCase().includes(q) ||
+    (product.title || "").toLowerCase().includes(q) ||
+    (product.vendor || "").toLowerCase().includes(q) ||
+    (product.productType || "").toLowerCase().includes(q) ||
     barcodeMatch ||
     skuMatch
   );
+
 });
-    return res.status(200).json({
+
+return res.status(200).json({
+
   total: filteredProducts.length,
-  products: filteredProducts,
-});
-  } catch (err) {
+
+  products: filteredProducts
+
+});  } catch (err) {
     console.error("Handler error:", err);
 
     return res.status(500).json({
