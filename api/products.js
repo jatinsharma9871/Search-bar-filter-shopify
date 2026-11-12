@@ -2,6 +2,10 @@
 let tokenCache = null;
 let tokenExpiry = 0;
 
+// ============================================
+// SHOPIFY ACCESS TOKEN
+// ============================================
+
 async function getShopifyToken() {
   if (tokenCache && Date.now() < tokenExpiry) {
     return tokenCache;
@@ -42,11 +46,18 @@ async function getShopifyToken() {
   return tokenCache;
 }
 
+// ============================================
+// API HANDLER
+// ============================================
+
 export default async function handler(req, res) {
   // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization"
+  );
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
@@ -59,7 +70,24 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Get search query
+    // ========================================
+    // VALIDATE ENVIRONMENT VARIABLES
+    // ========================================
+
+    if (
+      !process.env.SHOPIFY_SHOP ||
+      !process.env.SHOPIFY_CLIENT_ID ||
+      !process.env.SHOPIFY_CLIENT_SECRET
+    ) {
+      return res.status(500).json({
+        error: "Missing Shopify environment variables",
+      });
+    }
+
+    // ========================================
+    // GET SEARCH QUERY
+    // ========================================
+
     const queryParam =
       req.method === "POST"
         ? req.body?.query
@@ -75,23 +103,18 @@ export default async function handler(req, res) {
       });
     }
 
-    // Check environment variables
-    if (
-      !process.env.SHOPIFY_SHOP ||
-      !process.env.SHOPIFY_CLIENT_ID ||
-      !process.env.SHOPIFY_CLIENT_SECRET
-    ) {
-      return res.status(500).json({
-        error: "Missing Shopify environment variables",
-      });
-    }
-
-    const token = await getShopifyToken();
-
     const searchTerm = queryParam.trim();
     const q = searchTerm.toLowerCase();
 
-    // Shopify GraphQL query
+    // Escape Shopify search syntax characters
+    const safeSearchTerm = searchTerm
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"');
+
+    // ========================================
+    // SHOPIFY GRAPHQL QUERY
+    // ========================================
+
     const gqlQuery = {
       query: `
         query SearchProducts($search: String!) {
@@ -103,6 +126,8 @@ export default async function handler(req, res) {
                 handle
                 vendor
                 productType
+                status
+                publishedAt
                 totalInventory
 
                 variants(first: 100) {
@@ -140,12 +165,22 @@ export default async function handler(req, res) {
         }
       `,
       variables: {
-        search: `title:*${searchTerm}* OR vendor:*${searchTerm}* OR product_type:*${searchTerm}* OR sku:*${searchTerm}* OR barcode:*${searchTerm}*`,
+        search: `(
+          title:*${safeSearchTerm}* OR
+          vendor:*${safeSearchTerm}* OR
+          product_type:*${safeSearchTerm}* OR
+          variants.sku:*${safeSearchTerm}* OR
+          variants.barcode:*${safeSearchTerm}*
+        ) AND status:active AND published_status:published`,
       },
     };
 
     const shopifyUrl =
       `https://${process.env.SHOPIFY_SHOP}/admin/api/2025-10/graphql.json`;
+
+    // ========================================
+    // SHOPIFY API REQUEST
+    // ========================================
 
     async function callShopify(accessToken) {
       return fetch(shopifyUrl, {
@@ -157,6 +192,8 @@ export default async function handler(req, res) {
         body: JSON.stringify(gqlQuery),
       });
     }
+
+    const token = await getShopifyToken();
 
     let response = await callShopify(token);
 
@@ -187,10 +224,13 @@ export default async function handler(req, res) {
       });
     }
 
-    // Convert Shopify products and variants
-    const products = (
-      result?.data?.products?.edges || []
-    )
+    // ========================================
+    // CONVERT SHOPIFY PRODUCTS
+    // ========================================
+
+    const edges = result?.data?.products?.edges || [];
+
+    const products = edges
       .map(({ node }) => {
         const variants = (node.variants?.edges || []).map(
           ({ node: variant }) => ({
@@ -211,7 +251,10 @@ export default async function handler(req, res) {
           })
         );
 
-        // Check if at least one variant is purchasable
+        // ====================================
+        // INVENTORY AVAILABILITY
+        // ====================================
+
         const hasAvailableVariant = variants.some((variant) => {
           // Untracked inventory is treated as available
           if (variant.tracked === false) {
@@ -233,9 +276,14 @@ export default async function handler(req, res) {
           handle: node.handle,
           vendor: node.vendor,
           productType: node.productType,
+
+          // Product publication information
+          status: node.status,
+          publishedAt: node.publishedAt,
+
           totalInventory: node.totalInventory,
 
-          // Direct product page URL
+          // Direct Shopify product page URL
           url: `/products/${node.handle}`,
 
           image:
@@ -246,10 +294,33 @@ export default async function handler(req, res) {
         };
       })
 
-      // Hide products with no purchasable variants
-      .filter((product) => product.hasAvailableVariant);
+      // ======================================
+      // STRICT PRODUCT VISIBILITY FILTER
+      // ======================================
 
-    // Filter products by search query
+      .filter((product) => {
+        // Never show Draft or Archived products
+        if (product.status !== "ACTIVE") {
+          return false;
+        }
+
+        // Exclude products without a publication date
+        if (!product.publishedAt) {
+          return false;
+        }
+
+        // Hide products without purchasable variants
+        if (!product.hasAvailableVariant) {
+          return false;
+        }
+
+        return true;
+      });
+
+    // ========================================
+    // FILTER PRODUCTS BY SEARCH QUERY
+    // ========================================
+
     const filteredProducts = products.filter((product) => {
       const barcodeMatch = product.variants.some((variant) =>
         (variant.barcode || "").toLowerCase().includes(q)
@@ -268,16 +339,20 @@ export default async function handler(req, res) {
       );
     });
 
+    // ========================================
+    // FINAL RESPONSE
+    // ========================================
+
     return res.status(200).json({
       total: filteredProducts.length,
       products: filteredProducts,
     });
 
   } catch (err) {
-    console.error("Handler error:", err);
+    console.error("Shopify Search Handler Error:", err);
 
     return res.status(500).json({
-      error: err.message,
+      error: err.message || "Internal server error",
     });
   }
 }
